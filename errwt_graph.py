@@ -30,7 +30,7 @@ SPACY_MODEL = 'en_core_web_sm'
 SPACY_BATCH = 2000  # tokens processed per nlp.pipe batch
 NLP_N_PROCESS = 1   # set >1 if your spaCy supports multiprocessing on your machine
 MIN_TOKEN_LEN = 2   # ignore 1-char tokens
-TOP_VOCAB = 25000   # keep this many most frequent tokens for cooccurrence pass ## NOTE: normally 50000, reduced to 500
+TOP_VOCAB = 50000   # keep this many most frequent tokens for cooccurrence pass ## NOTE: normally 50000, reduced to 500
 
 nlp = spacy.load(SPACY_MODEL, disable=['parser', 'ner', 'textcat'])
 nlp.max_length = 10_000_000  # accommodate long lines if any
@@ -113,33 +113,28 @@ N = len(all_tokens)
 eng_tokens = all_tokens[: int(0.2*N)]
 slang_tokens = all_tokens[int(0.2*N):]
 
-eng_words = set(tok for tokens in eng_tokens for tok in tokens)
-slang_candidates = {tok for tokens in slang_tokens for tok in tokens if tok not in eng_words}
-# eng_words = {tok for tokens in tokenize_texts_iter(CSV_PATH, frac=.2) for tok in tokens} # generates a small graph -- so only identify new nodes
-# slang_candidates = {tok for tokens in tokenize_texts_iter(CSV_PATH, frac=0.8) for tok in tokens if tok not in eng_words} # eng words is set, so should be fast
-# NOTE: these are not disjoint sets, could be problem -- is there way to make disjoint?
-
+eng_words = set(tok for tokens in eng_tokens for tok in tokens) # determine words as english 
+slang_candidates = {tok for tokens in slang_tokens for tok in tokens if tok not in eng_words} # only identifies new nodes
 
 print(f"English words in vocab: {len(eng_words)}; slang candidates: {len(slang_candidates)}")
 # Total weight = sum of cooccurrence counts for each word index
 row_sums = np.array(cooc_csr.sum(axis=1)).flatten()  # shape (V,)
 
 # Write English word weights
-with open('word_weights_top_vocab_errwt.csv', 'w', newline='', encoding='utf-8') as f:
+with open('output2/word_weights_top_vocab_errwt_large.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(['Word', 'TotalWeight', 'IsEnglish'])
     for i, w in enumerate(vocab):
         writer.writerow([w, int(row_sums[i]), w in eng_words])
 
 # Write slang weights (top by weight)
-# slang_indices = [vocab_index.get(w, 0) for w in slang_candidates] #[vocab_index[w] for w in slang_candidates] # NOTE: set default to zero just to put at back
 UNK_INDEX = len(vocab) - 1
 slang_indices = [vocab_index.get(w, UNK_INDEX) for w in slang_candidates]
 slang_sorted = sorted(slang_indices, key=lambda i: row_sums[i], reverse=True)
-with open('slang_weights_top_vocab_errwt.csv', 'w', newline='', encoding='utf-8') as f:
+with open('output2/slang_weights_top_vocab_errwt_large.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
     writer.writerow(['SlangWord', 'TotalWeight'])
-    for idx in slang_sorted[:5000]:  # cap output to top 5k slang candidates
+    for idx in slang_sorted[:10000]:  # cap output to top 5k slang candidates
         writer.writerow([vocab[idx], int(row_sums[idx])])
 
 TOP_GRAPH = 200  # number of slang nodes to visualize / save
@@ -165,7 +160,7 @@ for i in top_indices:
                 G.add_edge(w1, w2, weight=int(wt))
 
 # Save graph
-nx.write_gml(G, 'slang_network_top_errwt.gml')
+nx.write_gml(G, 'output2/slang_network_top_errwt_large.gml')
 print(f"Saved graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
 
 # small visualization (only for small graphs)
@@ -173,5 +168,5 @@ import matplotlib.pyplot as plt
 plt.figure(figsize=(10, 10))
 pos = nx.spring_layout(G, seed=42)  # deterministic layout
 weights = [G[u][v]['weight'] for u, v in G.edges()]
-nx.draw(G, pos, with_labels=True, node_size=300, width=np.log1p(weights))
-plt.savefig('slang_graph_top.png', dpi=200)
+nx.draw(G, pos, with_labels=False, node_size=50, width=np.log1p(weights), edge_cmap='viridis') # NOTE: with labels is false, could return to true
+plt.savefig('output2/slang_graph_top.png', dpi=300)
